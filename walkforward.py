@@ -6,9 +6,12 @@ then run the winning parameters on the following unseen test window (2 months),
 roll forward, and stitch the test-window trades together. The stitched
 out-of-sample record is the only performance number that matters.
 
+Now strategy-agnostic: pass sig_fn + grid to run either V1 (trend-pullback) or
+V2 (Asia-range sweep-reversal) through the same harness.
+
 Performance note: indicator features (EMA/ATR/RSI, HTF mapping) do not depend on
-the grid parameters (SL/TP multiples, RSI trigger level), so they are computed
-ONCE per pair and reused across every grid combination and window.
+the grid parameters, so they are computed ONCE per pair and reused across every
+grid combination and window.
 
 Interpretation guide:
 - OOS expectancy >= ~60% of in-sample expectancy  -> parameters are stable. Good.
@@ -45,14 +48,14 @@ def precompute(raw: dict, news) -> tuple[dict, dict]:
     return feats, blackouts
 
 
-def _run(feats: dict, blackouts: dict, params: dict, t0, t1) -> dict:
+def _run(feats: dict, blackouts: dict, params: dict, t0, t1, sig_fn=None) -> dict:
     datasets = {}
     for pair, f in feats.items():
         sl = f.loc[t0:t1]
         if len(sl) < 500:
             continue
-        datasets[pair] = strategy.generate_signals(
-            sl, pair, params, blackouts[pair].loc[t0:t1])
+        fn = sig_fn or strategy.generate_signals
+        datasets[pair] = fn(sl, pair, params, blackouts[pair].loc[t0:t1])
     if not datasets:
         return {"n_trades": 0}
     trades, curve = engine.run_backtest(datasets, params)
@@ -61,9 +64,9 @@ def _run(feats: dict, blackouts: dict, params: dict, t0, t1) -> dict:
     return s
 
 
-def walk_forward(feats: dict, blackouts: dict) -> dict:
+def walk_forward(feats: dict, blackouts: dict, sig_fn=None, grid=None) -> dict:
     base = dict(config.STRATEGY)
-    grid = config.WALKFORWARD["grid"]
+    grid = grid or config.WALKFORWARD["grid"]
     keys = list(grid)
     combos = [dict(zip(keys, v)) for v in itertools.product(*grid.values())]
     obj = config.WALKFORWARD["objective"]
@@ -76,7 +79,7 @@ def walk_forward(feats: dict, blackouts: dict) -> dict:
         best, best_score = None, -np.inf
         for c in combos:
             params = {**base, **c}
-            s = _run(feats, blackouts, params, t0, split)
+            s = _run(feats, blackouts, params, t0, split, sig_fn)
             if s.get("n_trades", 0) < config.WALKFORWARD["min_train_trades"]:
                 continue
             if s[obj] > best_score:
@@ -85,7 +88,7 @@ def walk_forward(feats: dict, blackouts: dict) -> dict:
             report.append({"train": (str(t0.date()), str(split.date())),
                            "note": "insufficient trades"})
             continue
-        s_test = _run(feats, blackouts, {**base, **best}, split, t2)
+        s_test = _run(feats, blackouts, {**base, **best}, split, t2, sig_fn)
         oos_trades.extend(s_test.pop("_trades", []))
         report.append({
             "train": (str(t0.date()), str(split.date())),

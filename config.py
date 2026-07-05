@@ -70,6 +70,15 @@ WALKFORWARD = {
     "min_train_trades": 30,            # window invalid if fewer trades than this
 }
 
+# Walk-forward grid for strategy V2 (Asia-range sweep-reversal)
+WALKFORWARD_V2 = {
+    "grid": {
+        "min_rr": [1.0, 1.2, 1.5],
+        "stop_buffer_atr": [0.05, 0.15],
+        "require_h4_align": [False, True],
+    },
+}
+
 MONTE_CARLO = {"n_shuffles": 1000, "seed": 42}
 
 # OANDA data settings (demo/practice endpoint)

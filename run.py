@@ -4,6 +4,7 @@ STP backtest runner.
 Usage (on your VM, with OANDA_API_TOKEN set):
     python run.py --start 2023-07-01 --end 2026-06-30
     python run.py --start 2023-07-01 --end 2026-06-30 --walkforward
+    python run.py --start 2023-07-01 --end 2026-06-30 --strategy v2 --walkforward
 
 Smoke test without market data (mechanics only, results meaningless):
     python run.py --start 2024-01-01 --end 2025-06-30 --source synthetic --walkforward
@@ -25,6 +26,7 @@ def main():
     ap.add_argument("--source", default="oanda", choices=["oanda", "synthetic"])
     ap.add_argument("--walkforward", action="store_true")
     ap.add_argument("--montecarlo", action="store_true")
+    ap.add_argument("--strategy", default="v1", choices=["v1", "v2"])
     args = ap.parse_args()
 
     if args.source == "synthetic":
@@ -42,10 +44,18 @@ def main():
     # ---- precompute indicator features once ----
     feats, blackouts = wf.precompute(raw, news)
 
+    # ---- pick the strategy brain ----
+    if args.strategy == "v2":
+        import strategy_v2
+        sig_fn, wf_grid = strategy_v2.generate_signals, config.WALKFORWARD_V2["grid"]
+        params = {**config.STRATEGY, **strategy_v2.DEFAULTS}
+    else:
+        sig_fn, wf_grid = strategy.generate_signals, config.WALKFORWARD["grid"]
+        params = dict(config.STRATEGY)
+    print(f"Strategy: {args.strategy}")
+
     # ---- single full-period backtest with default params ----
-    params = dict(config.STRATEGY)
-    datasets = {p: strategy.generate_signals(feats[p], p, params, blackouts[p])
-                for p in feats}
+    datasets = {p: sig_fn(feats[p], p, params, blackouts[p]) for p in feats}
 
     trades, curve = engine.run_backtest(datasets, params)
     print("\n--- Full-period backtest (default parameters) ---")
@@ -63,7 +73,7 @@ def main():
 
     if args.walkforward:
         print("\n--- Walk-forward analysis ---")
-        res = wf.walk_forward(feats, blackouts)
+        res = wf.walk_forward(feats, blackouts, sig_fn=sig_fn, grid=wf_grid)
         for w in res["windows"]:
             print(json.dumps(w, default=str))
         print("\nStitched OUT-OF-SAMPLE summary (the number that matters):")
