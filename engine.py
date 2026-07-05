@@ -34,6 +34,8 @@ class Trade:
     pnl: float = 0.0
     bars_held: int = 0
     be_moved: bool = False
+    mfe_r: float = 0.0      # max favorable excursion in R (how far it went our way)
+    mae_r: float = 0.0      # max adverse excursion in R (how far against us, <= 0)
 
 
 @dataclass
@@ -120,6 +122,13 @@ def run_backtest(datasets: dict, params: dict,
             if pair in pf.open_pos:
                 t = pf.open_pos[pair]
                 t.bars_held += 1
+                # track excursions (favorable/adverse) in R, including this bar
+                fav = t.direction * ((hi if t.direction == 1 else lo) - t.entry) / t.risk_dist
+                adv = t.direction * ((lo if t.direction == 1 else hi) - t.entry) / t.risk_dist
+                if fav > t.mfe_r:
+                    t.mfe_r = fav
+                if adv < t.mae_r:
+                    t.mae_r = adv
                 hit_stop = (lo <= t.stop) if t.direction == 1 else (hi >= t.stop)
                 hit_tp = (hi >= t.target) if t.direction == 1 else (lo <= t.target)
                 if hit_stop:                      # pessimistic: stop before target
