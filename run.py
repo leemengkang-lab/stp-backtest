@@ -27,7 +27,16 @@ def main():
     ap.add_argument("--walkforward", action="store_true")
     ap.add_argument("--montecarlo", action="store_true")
     ap.add_argument("--strategy", default="v1", choices=["v1", "v2"])
+    ap.add_argument("--nocost", action="store_true",
+                    help="Zero spread+slippage to measure GROSS edge (is the raw pattern real?)")
     args = ap.parse_args()
+
+    if args.nocost:
+        for spec in config.PAIR_SPECS.values():
+            spec["spread_pips"] = 0.0
+            spec["slippage_pips"] = 0.0
+        print("GROSS MODE: spread + slippage zeroed (measuring the raw pattern edge, "
+              "not a tradeable result).")
 
     if args.source == "synthetic":
         print("=" * 66)
