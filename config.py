@@ -5,7 +5,7 @@ Times are UTC internally. (SGT = UTC+8: Tokyo window 08-12 SGT = 00-04 UTC,
 London window 15-21 SGT = 07-13 UTC.)
 """
 
-PAIRS = ["EUR_USD", "GBP_USD", "USD_JPY", "AUD_USD"]
+PAIRS = ["EUR_USD", "USD_JPY", "AUD_USD"]  # GBP dropped: no gross edge + widest spread
 
 # Which pairs may trade in which session (UTC hours, [start, end) )
 SESSIONS = {
@@ -34,12 +34,15 @@ STRATEGY = {
     "time_stop_bars": None,    # safety net; set after measuring median time-to-target
 }
 
-# Per-pair market microstructure (pips). Adjust to your OANDA live stats.
+# Per-pair market microstructure (pips).
+# Spreads MEASURED on OANDA fxpractice, median over 07-13 UTC (last ~52 days).
+# These are ~2x the earlier assumptions; demo spreads run wide, so treat as an
+# upper bound on live cost, but clearly above the old 0.9-1.1 guesses.
 PAIR_SPECS = {
-    "EUR_USD": {"pip": 0.0001, "spread_pips": 0.9, "slippage_pips": 0.3, "min_sl_pips": 10},
-    "GBP_USD": {"pip": 0.0001, "spread_pips": 1.3, "slippage_pips": 0.4, "min_sl_pips": 10},
-    "USD_JPY": {"pip": 0.01,   "spread_pips": 1.0, "slippage_pips": 0.3, "min_sl_pips": 15},
-    "AUD_USD": {"pip": 0.0001, "spread_pips": 1.1, "slippage_pips": 0.3, "min_sl_pips": 10},
+    "EUR_USD": {"pip": 0.0001, "spread_pips": 1.6, "slippage_pips": 0.3, "min_sl_pips": 10},
+    "GBP_USD": {"pip": 0.0001, "spread_pips": 1.9, "slippage_pips": 0.4, "min_sl_pips": 10},
+    "USD_JPY": {"pip": 0.01,   "spread_pips": 1.6, "slippage_pips": 0.3, "min_sl_pips": 15},
+    "AUD_USD": {"pip": 0.0001, "spread_pips": 1.3, "slippage_pips": 0.3, "min_sl_pips": 10},
 }
 
 ACCOUNT = {"starting_equity": 100_000.0}
@@ -74,7 +77,7 @@ WALKFORWARD = {
 WALKFORWARD_V2 = {
     "grid": {
         "min_rr": [1.0, 1.2, 1.5],
-        "stop_buffer_atr": [0.05, 0.15],
+        "stop_buffer_atr": [0.1, 0.3, 0.5],   # wider stops dilute the fixed pip cost as a fraction of R
         "require_h4_align": [False, True],
     },
 }
