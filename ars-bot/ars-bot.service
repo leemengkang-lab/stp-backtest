@@ -1,0 +1,20 @@
+[Unit]
+Description=ARS forex bot (OANDA practice, forward demo test)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=leemengkang
+WorkingDirectory=/home/leemengkang/ars-bot
+# Requires /etc/forex-scalper.env to define OANDA_API_TOKEN and OANDA_ACCOUNT_ID
+# (the deploy step adds them). systemd does NOT expand ${OANDA_TOKEN} in an
+# Environment= line, so we provide the names the bot reads directly in the file.
+EnvironmentFile=/etc/forex-scalper.env
+ExecStart=/home/leemengkang/.venv/bin/python /home/leemengkang/ars-bot/ars_bot.py
+Restart=always
+RestartSec=30
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target
