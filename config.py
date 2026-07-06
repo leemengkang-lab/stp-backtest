@@ -73,12 +73,13 @@ WALKFORWARD = {
     "min_train_trades": 30,            # window invalid if fewer trades than this
 }
 
-# Walk-forward grid for strategy V2 (Asia-range sweep-reversal)
+# Walk-forward grid for strategy V2 (Asia-range sweep-reversal).
+# FAST grid: sweep ONLY the stop buffer (the cost-dilution lever we care about).
+# min_rr and require_h4_align stay at strategy_v2.DEFAULTS. 3 combos instead of
+# 18 -> ~6x faster on the e2-micro. Re-widen once this gives a first read.
 WALKFORWARD_V2 = {
     "grid": {
-        "min_rr": [1.0, 1.2, 1.5],
-        "stop_buffer_atr": [0.1, 0.3, 0.5],   # wider stops dilute the fixed pip cost as a fraction of R
-        "require_h4_align": [False, True],
+        "stop_buffer_atr": [0.1, 0.3, 0.5],   # wider stop -> smaller fixed-pip cost as a fraction of R
     },
 }
 
