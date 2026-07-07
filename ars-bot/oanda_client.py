@@ -15,6 +15,8 @@ class OandaClient:
             raise RuntimeError(f"Set {cfg.OANDA['env_token']} and {cfg.OANDA['env_account']}")
         self.base = cfg.OANDA["api_url"]
         self.h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        self._home_ccy = None       # account (home) currency, e.g. "USD" or "SGD"
+        self._home_rate = None      # home-currency units per 1 USD (cached)
 
     def _get(self, path, **params):
         for attempt in range(3):
@@ -53,6 +55,27 @@ class OandaClient:
     # ---- account / trades ----
     def nav(self):
         return float(self._get(f"/v3/accounts/{self.account}/summary")["account"]["NAV"])
+
+    def home_per_usd(self):
+        """Account (home) currency units per 1 USD; 1.0 for a USD account. Cached.
+
+        Needed to size positions in the ACCOUNT currency: OANDA reports NAV and
+        realized P&L in the home currency, but per-unit P&L is in the pair's
+        quote currency, so a non-USD account must convert through this rate.
+        """
+        if self._home_rate is None:
+            summ = self._get(f"/v3/accounts/{self.account}/summary")["account"]
+            self._home_ccy = summ["currency"]
+            if self._home_ccy == "USD":
+                self._home_rate = 1.0
+            else:
+                try:                                    # e.g. USD_SGD -> SGD per USD
+                    bid, ask = self.pricing(f"USD_{self._home_ccy}")
+                    self._home_rate = (bid + ask) / 2
+                except Exception:                       # fall back to XXX_USD inverted
+                    bid, ask = self.pricing(f"{self._home_ccy}_USD")
+                    self._home_rate = 1.0 / ((bid + ask) / 2)
+        return self._home_rate
 
     def open_trades(self):
         return self._get(f"/v3/accounts/{self.account}/openTrades")["trades"]

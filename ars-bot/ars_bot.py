@@ -20,8 +20,10 @@ from datetime import datetime, timezone, timedelta
 import bot_config as cfg
 from oanda_client import OandaClient
 from news_guard import NewsGuard
+from telegram_notify import Telegram
 
 log = logging.getLogger("ars")
+TG = None    # Telegram notifier; set in main()
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -110,12 +112,14 @@ def evaluate_day(bars, atr, pair):
     return None
 
 
-def units_for_risk(pair, risk_usd, sl_dist, mid):
-    """Position size so that sl_dist of adverse move loses ~risk_usd (USD account)."""
-    if pair.endswith("_USD"):
-        return risk_usd / sl_dist                # quote is USD
-    if pair == "USD_JPY":
-        return risk_usd * mid / sl_dist          # P&L in JPY -> convert at mid
+def units_for_risk(pair, risk_home, sl_dist, mid, home_per_usd):
+    """Position size so sl_dist of adverse move loses ~risk_home in the ACCOUNT
+    currency. home_per_usd = account-ccy units per 1 USD (1.0 for a USD account),
+    so a non-USD account (e.g. SGD) is sized correctly instead of ~1.35x hot."""
+    if pair.endswith("_USD"):                    # quote USD -> home
+        return risk_home / (sl_dist * home_per_usd)
+    if pair == "USD_JPY":                        # quote JPY -> USD (via mid) -> home
+        return risk_home * mid / (sl_dist * home_per_usd)
     raise ValueError(pair)
 
 
@@ -191,6 +195,15 @@ def manage_open(client, s, m15_by_pair):
                 "be_moved": meta["be_moved"],
             })
             log.info(f"CLOSED {pair} {r:+.2f}R (day {s['day_r']:+.2f}R, week {s['week_r']:+.2f}R)")
+            if TG:
+                TG.send(f"{'WIN' if r > 0 else 'LOSS'} {pair} {r:+.2f}R  "
+                        f"(day {s['day_r']:+.2f}R, week {s['week_r']:+.2f}R)")
+                if s["day_r"] <= P["daily_stop_r"]:
+                    TG.send(f"CIRCUIT BREAKER: daily {s['day_r']:+.2f}R <= "
+                            f"{P['daily_stop_r']}R - no new entries today")
+                elif s["week_r"] <= P["weekly_stop_r"]:
+                    TG.send(f"CIRCUIT BREAKER: weekly {s['week_r']:+.2f}R <= "
+                            f"{P['weekly_stop_r']}R - no new entries this week")
             del s["tracked"][tid]
             continue
 
@@ -254,8 +267,8 @@ def try_enter(client, news, s, pair, bars, now):
     sl_px = round(entry_est - d * sig["risk"], spec["precision"])
     tp_px = round(entry_est + d * sig["reward"], spec["precision"])
     nav = client.nav()
-    risk_usd = nav * P["risk_per_trade"]
-    units = int(units_for_risk(pair, risk_usd, sig["risk"], mid)) * d
+    risk_usd = nav * P["risk_per_trade"]          # in the ACCOUNT currency (the r_mult denominator)
+    units = int(units_for_risk(pair, risk_usd, sig["risk"], mid, client.home_per_usd())) * d
     if units == 0:
         return
 
@@ -277,6 +290,9 @@ def try_enter(client, news, s, pair, bars, now):
     }
     log.info(f"ENTER {pair} {'LONG' if d==1 else 'SHORT'} {units}u @ {entry_px} "
              f"SL {sl_px} TP {tp_px} spread {spread_pips:.1f}p risk ${risk_usd:.0f}")
+    if TG:
+        TG.send(f"ENTER {pair} {'LONG' if d==1 else 'SHORT'} {units}u @ {entry_px}\n"
+                f"SL {sl_px}  TP {tp_px}  spread {spread_pips:.1f}p  risk {risk_usd:.0f}")
 
 
 def cycle(client, news, s):
@@ -284,6 +300,8 @@ def cycle(client, news, s):
     roll_periods(s, now)
 
     if os.path.exists(cfg.FILES["flatten_flag"]):
+        if s["tracked"] and TG:
+            TG.send("FLATTEN triggered - closing all positions and halting entries")
         for tid in list(s["tracked"]):
             try:
                 client.close_trade(tid)
@@ -320,12 +338,23 @@ def sleep_to_next_m15():
 
 
 def main():
+    global TG
     log.info("ARS bot starting (practice account, forward demo test)")
     client = OandaClient()
     news = NewsGuard(log)
+    TG = Telegram(log)
     s = load_state()
+    try:
+        rate = client.home_per_usd()
+        log.info(f"account currency {client._home_ccy}: {rate:.4f} per USD "
+                 f"(risk sizing calibrated to home currency)")
+    except Exception as ex:
+        log.warning(f"could not fetch home-currency rate at startup: {ex}; "
+                    f"will retry per entry")
     log.info(f"state: day_r {s['day_r']:+.2f}R week_r {s['week_r']:+.2f}R "
              f"tracked {list(s['tracked'])}")
+    TG.send(f"ARS bot started (practice, {client._home_ccy or '?'}). "
+            f"Trading {', '.join(cfg.PAIRS)} in the London window.")
     while True:
         try:
             cycle(client, news, s)
